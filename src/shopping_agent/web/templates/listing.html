@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}{{ listing.title[:60] }} · Shopping Agent{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>{{ listing.title }}</h1>
+  <p class="secondary small">
+    {{ listing.marketplace.replace("_", " ") | title }}{% if listing.seller %} · sold by {{ listing.seller }}{% endif %}
+    · {{ listing.availability.replace("_", " ") }}
+    {% if listing.condition != "new" %} · <span class="badge serious">{{ listing.condition.replace("_", " ") }}</span>{% endif %}
+    {% if listing.rating %} · rated {{ listing.rating }}{% if listing.rating_count %} ({{ listing.rating_count }} ratings){% endif %}{% endif %}
+    {% if listing.url %} · <a href="{{ listing.url }}" rel="noopener noreferrer nofollow" target="_blank">open on {{ listing.marketplace.replace("_", " ") }}</a>{% endif %}
+  </p>
+  <div class="prices">
+    <div><div class="label">Listed price</div><div class="big">{{ listing.price | inr }}</div>
+      <div class="muted small">seen {{ listing.observed_at.strftime("%d %b %Y %H:%M") }} UTC{% if listing.stale %} · <span class="badge stale">may be out of date</span>{% endif %}</div></div>
+    {% if listing.mrp and listing.mrp > listing.price %}<div><div class="label">MRP</div><div class="value">{{ listing.mrp | inr }}</div></div>{% endif %}
+    {% if offers and offers.scenarios %}{% set best = offers.scenarios | rejectattr("conditional") | sort(attribute="net_after_cashback") | first %}
+    {% if best %}<div><div class="label">Best price for you</div><div class="value">{{ best.net_after_cashback | inr }}</div>
+      <div class="muted small">{{ best.name }}</div></div>{% endif %}
+    {% endif %}
+  </div>
+  {% if watch %}
+  <p class="small"><span class="badge meets">tracking</span>
+    {% if watch.target_price %}alert when listed ≤ {{ watch.target_price | inr }}. {% endif %}
+    {% if watch.target_effective %}alert when your price ≤ {{ watch.target_effective | inr }}. {% endif %}
+    {% if watch.last_checked_at %}Last checked {{ watch.last_checked_at.strftime("%d %b %H:%M") }} UTC.{% endif %}
+    <a href="/watchlist">Watchlist</a></p>
+  {% endif %}
+  <details {% if not watch %}open{% endif %}>
+    <summary>{{ "Change targets" if watch else "Track this and get alerts" }}</summary>
+    <form data-api="/v1/watchlist" data-method="POST">
+      <input type="hidden" name="listing_id" value="{{ listing.listing_id }}">
+      <div class="form-row">
+        <div class="narrow"><label for="t-eff">Alert when the price for you is at or below</label>
+          <input id="t-eff" type="number" name="target_effective" min="1" value="{{ watch.target_effective | int if watch and watch.target_effective else '' }}"></div>
+        <div class="narrow"><label for="t-price">…or the listed price is at or below</label>
+          <input id="t-price" type="number" name="target_price" min="1" value="{{ watch.target_price | int if watch and watch.target_price else '' }}"></div>
+        <div class="narrow"><label for="t-pri">Priority</label>
+          <select id="t-pri" name="priority"><option>normal</option><option>high</option><option>low</option></select></div>
+        <button type="submit">{{ "Update" if watch else "Track" }}</button>
+      </div>
+      <p class="muted small">Price for you = best price with your saved cards and memberships, without conditions like exchange.
+        Tracking also records the price history and tells you when offers change or a sale starts.</p>
+    </form>
+  </details>
+</section>
+
+<section class="card">
+  <div class="row">
+    <h2 style="margin-top:0">Price history</h2>
+    <span class="spacer"></span>
+    <span class="small">
+      {% for d in (30, 90, 180, 365) %}<a href="?days={{ d }}" {% if d == days %}aria-current="page"{% endif %}>{{ d }} days</a>{% if not loop.last %} · {% endif %}{% endfor %}
+    </span>
+  </div>
+  {% if history %}
+  <p class="muted small">{{ history.coverage_note }}</p>
+  {% set h = history.listings[0] if history.listings else none %}
+  {% if h and h.baseline %}{% set b = h.baseline %}
+  <div class="stats">
+    <div><div class="label">Lowest observed</div><div class="value">{{ b.minimum | inr }}</div></div>
+    <div><div class="label">Highest observed</div><div class="value">{{ b.maximum | inr }}</div></div>
+    <div><div class="label">Average</div><div class="value">{{ b.average | inr }}</div></div>
+    <div><div class="label">Coverage</div><div class="value">{{ b.coverage_days }} days · {{ b.tier }}</div></div>
+    <div><div class="label">Trend</div><div class="value">{{ b.trend }}</div></div>
+  </div>
+  {% if h.low_note %}<p class="small">{{ h.low_note }}</p>{% endif %}
+  {% if h.pre_sale_hike and h.pre_sale_hike.detected %}<p class="small"><span class="badge serious">possible pre-sale price rise</span> {{ h.pre_sale_hike.reason }}</p>{% endif %}
+  {% endif %}
+  {% endif %}
+  {{ chart if chart else '' }}
+</section>
+
+{% if offers %}
+<section class="card">
+  <h2 style="margin-top:0">Offers and effective price</h2>
+  {% for n in offers.notes %}<p class="muted small">{{ n }}</p>{% endfor %}
+  {% if offers.scenarios %}{% with scenarios = offers.scenarios %}{% include "_scenarios.html" %}{% endwith %}{% endif %}
+
+  {% if offers.card_matrix %}
+  <h3>Price with each of your cards</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Payment</th><th class="num">Pay at checkout</th><th class="num">Cashback later</th><th class="num">Net cost</th></tr></thead>
+    <tbody>{% for r in offers.card_matrix %}
+      <tr><td>{{ r.payment }}</td><td class="num">{{ r.best.upfront_conservative | inr }}</td>
+        <td class="num">{% if r.best.deferred_cashback %}{{ r.best.deferred_cashback | inr }}{% else %}–{% endif %}</td>
+        <td class="num">{{ r.best.net_after_cashback | inr }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+
+  {% if offers.offers %}
+  <h3>All offers found</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Offer</th><th>Type</th><th>For you</th><th>Source</th></tr></thead>
+    <tbody>{% for v in offers.offers %}
+      <tr>
+        <td>{{ v.offer.title }}{% if v.offer.min_order_value %} <span class="muted small">(min order {{ v.offer.min_order_value | inr }})</span>{% endif %}</td>
+        <td>{{ v.offer.type }}</td>
+        <td><span class="badge {{ v.eligibility.status }}">{{ v.eligibility.status }}</span>
+          {% if v.eligibility.reasons %}<span class="muted small">{{ v.eligibility.reasons | join("; ") }}</span>{% endif %}
+          {% if v.eligibility.conditions %}<span class="muted small">{{ v.eligibility.conditions | join("; ") }}</span>{% endif %}</td>
+        <td><span class="badge {{ v.offer.verification }}">{{ v.offer.verification.replace("_", " ") }}</span>
+          <span class="muted small">{{ v.source }}</span>{% if v.offer.stale %} <span class="badge stale">may have changed</span>{% endif %}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+
+  {% if offers.stacking %}
+  <details>
+    <summary>Which offers can be combined</summary>
+    {% set titles = {} %}{% for v in offers.offers %}{% set _ = titles.update({v.offer.id: v.offer.title}) %}{% endfor %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Offer</th><th>Offer</th><th>Together?</th><th>Why</th></tr></thead>
+      <tbody>{% for p in offers.stacking %}
+        <tr><td>{{ titles.get(p.a, p.a) }}</td><td>{{ titles.get(p.b, p.b) }}</td>
+          <td><span class="badge {{ {'combinable': 'meets', 'incompatible': 'fails', 'unknown': 'unknown'}[p.status] }}">{{ p.status }}</span></td>
+          <td class="small">{{ p.reason }}</td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+    <p class="muted small">"Unknown" means the terms don't say, so those offers are never combined in the prices above.</p>
+  </details>
+  {% endif %}
+
+  <details>
+    <summary>Paste an offer you saw (bank offer, coupon…)</summary>
+    <form data-api="/v1/offers/parse" data-method="POST">
+      <input type="hidden" name="listing_id" value="{{ listing.listing_id }}">
+      <input type="hidden" name="save" value="true" data-type="bool">
+      <label for="offer-text">Offer terms, as shown on the page</label>
+      <textarea id="offer-text" name="text" required minlength="5" maxlength="4000"
+        placeholder="10% instant discount up to ₹1,500 on HDFC Bank credit cards, min order ₹5,000"></textarea>
+      <div class="row" style="margin-top:0.5rem"><button type="submit">Read and apply</button>
+        <span class="muted small">Saved as "user provided" for this listing only.</span></div>
+    </form>
+  </details>
+</section>
+{% endif %}
+
+{% if sellers and (sellers.matching or sellers.rejected) %}
+<section class="card">
+  <h2 style="margin-top:0">Same variant elsewhere</h2>
+  {% if sellers.matching %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Where</th><th>Seller</th><th class="num">Price</th><th>Match</th></tr></thead>
+    <tbody>{% for g in sellers.matching | sort(attribute="listing.price") %}
+      <tr>
+        <td><a href="/listing/{{ g.listing.listing_id }}">{{ g.listing.marketplace.replace("_", " ") | title }}</a></td>
+        <td>{{ g.listing.seller or "–" }}{% for f in g.risk_flags %}<br><span class="badge serious">{{ f }}</span>{% endfor %}</td>
+        <td class="num">{{ g.listing.price | inr }}</td>
+        <td>{% if g.decision == "pass" %}<span class="badge meets">same variant</span>{% else %}<span class="badge unknown">probably same</span>
+          <span class="muted small">not confirmed: {{ g.unverified | join(", ") }}</span>{% endif %}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+  {% if sellers.rejected %}
+  <details><summary>Different variants, not compared ({{ sellers.rejected | length }})</summary>
+    <ul class="small">{% for r in sellers.rejected %}<li>{{ r.listing.title[:90] }} at {{ r.listing.price | inr }}: {{ r.reasons | join("; ") }}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if details and details.specs %}
+<section class="card">
+  <h2 style="margin-top:0">Specifications</h2>
+  <p class="muted small">From {{ details.source_name }} <span class="badge {{ details.verification }}">{{ details.verification.replace("_", " ") }}</span>
+    {% if details.official_url %} · <a href="{{ details.official_url }}" rel="noopener noreferrer nofollow" target="_blank">official page</a>{% endif %}</p>
+  <div class="table-wrap"><table>
+    <tbody>{% for k, v in details.specs.items() %}<tr><th>{{ k.replace("_", " ") }}</th><td>{{ v }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% if details.conflicts %}<h3>Conflicting specs</h3><ul class="small">{% for c in details.conflicts %}<li>{{ c.explanation }}</li>{% endfor %}</ul>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

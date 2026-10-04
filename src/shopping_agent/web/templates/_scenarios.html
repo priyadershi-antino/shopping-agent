@@ -1,0 +1,22 @@
+<div class="table-wrap"><table>
+  <thead><tr>
+    <th>Scenario</th><th class="num">Pay at checkout</th><th class="num">Cashback later</th>
+    <th class="num">Net cost</th><th>Offers applied</th><th>Conditions</th>
+  </tr></thead>
+  <tbody>
+  {% for s in scenarios %}
+    <tr>
+      <td><strong>{{ s.label }}</strong> {{ s.name }}
+        {% if s.verification != "verified" %}<br><span class="badge {{ s.verification }}">{{ s.verification.replace("_", " ") }}</span>{% endif %}
+        {% if s.stale %}<br><span class="badge stale">offer may have changed</span>{% endif %}</td>
+      <td class="num">{% if s.upfront_best != s.upfront_conservative %}{{ s.upfront_best | inr }} – {% endif %}{{ s.upfront_conservative | inr }}</td>
+      <td class="num">{% if s.deferred_cashback %}{{ s.deferred_cashback | inr }}{% else %}–{% endif %}</td>
+      <td class="num">{{ s.net_after_cashback | inr }}</td>
+      <td class="small">{% for a in s.applied %}{{ a.title }}{% if not loop.last %}; {% endif %}{% else %}none{% endfor %}</td>
+      <td class="small">{% if s.conditional %}<span class="badge conditional">conditional</span> {{ s.conditions | join("; ") }}{% else %}none{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+<p class="muted small">A: standard price · B: best single offer you're eligible for · C: best combination the terms allow ·
+  D: best price if you meet extra conditions. Exchange values are a range that depends on the device's condition.</p>

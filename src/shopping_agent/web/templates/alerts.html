@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Alerts · Shopping Agent{% endblock %}
+{% block content %}
+<div class="row">
+  <h1>Alerts</h1>
+  <span class="spacer"></span>
+  {% if unread %}<button type="button" class="quiet" data-api="/v1/notifications/read" data-body='{}'>Mark all as read</button>{% endif %}
+</div>
+
+{% if brief %}
+<section class="card">
+  <h2 style="margin-top:0">Sale brief: {{ brief.event_name }}</h2>
+  <p>{{ brief.summary }}</p>
+  {% if brief.items %}<ul>{% for i in brief.items %}<li>{{ i.line }}</li>{% endfor %}</ul>{% endif %}
+  <p class="muted small">Prices "for you" use your saved cards. Pre-sale medians come from our own price history.</p>
+</section>
+{% endif %}
+
+<section class="card">
+  {% if items %}
+  <ul class="actions-list">
+    {% for n in items %}
+    <li>
+      {% if not n.read %}<span class="badge good">new</span>{% endif %}
+      <span><strong>{{ n.alert.title }}</strong><br><span class="small" style="white-space:pre-line">{{ n.alert.message }}</span></span>
+      <span class="spacer"></span>
+      <span class="muted small">{{ n.alert.created_at.strftime("%d %b %H:%M") }} UTC</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No alerts yet. Track products with a target price; alerts appear here (and by email or Telegram if configured).</p>
+  {% endif %}
+</section>
+{% endblock %}

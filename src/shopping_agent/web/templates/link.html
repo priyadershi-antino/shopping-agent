@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Product link · Shopping Agent{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Check a product link</h1>
+  <form method="get" action="/link">
+    <label for="url">Amazon, Flipkart, Croma, Reliance Digital or manufacturer link</label>
+    <div class="form-row">
+      <div><input id="url" type="url" name="url" required value="{{ url or '' }}" placeholder="https://www.flipkart.com/…/p/itm…"></div>
+      <button type="submit">Open</button>
+    </div>
+  </form>
+  <p class="muted small">We read the product ID from the link (tracking parameters are removed) and look the product
+    up through our data providers. Marketplace pages are never scraped.</p>
+</section>
+
+{% if message %}
+<section class="card">
+  <p>{{ message }}</p>
+  {% if data and data.parsed %}
+  <p class="muted small">Recognised: {{ data.parsed.marketplace }}{% if data.parsed.external_id %} · {{ data.parsed.id_type }} {{ data.parsed.external_id }}{% endif %}</p>
+  {% endif %}
+  {% if data and data.candidates %}
+  <h2>Is it one of these?</h2>
+  <ul class="recent">
+    {% for c in data.candidates %}
+    <li>
+      {% if c.listings %}<a href="/listing/{{ c.listings[0].listing_id }}">{{ c.title[:110] }}</a>{% else %}{{ c.title[:110] }}{% endif %}
+      <span class="muted small">from {{ c.lowest_price | inr }} · {{ c.listings | length }} listing(s)</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

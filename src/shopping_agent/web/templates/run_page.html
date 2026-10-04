@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}{{ run.request[:60] }} · Shopping Agent{% endblock %}
+{% block content %}
+{% include "_ask.html" %}
+<div id="result" aria-live="polite">{% include "_run.html" %}</div>
+{% endblock %}

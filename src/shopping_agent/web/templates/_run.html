@@ -1,0 +1,199 @@
+{% set verdict_labels = {
+  "top_pick": "Top pick", "strong_alternative": "Strong alternative", "budget_pick": "Budget pick",
+  "consider": "Consider", "not_recommended": "Not recommended"} %}
+{% set action_labels = {"track_price": "Track price", "price_alert": "Price alert", "save_preference": "Save preference"} %}
+<article class="run" data-run-id="{{ run.run_id }}">
+  {% if run.demo_data %}<p class="banner small"><strong>Demo data:</strong> this answer uses the fictional demo catalog.</p>{% endif %}
+
+  {% if run.status == "needs_clarification" %}
+  <section class="card">
+    <h2>One question first</h2>
+    <p>{{ run.clarification_question }}</p>
+    <p class="muted small">Type your answer above. It is sent as a follow-up to this question.</p>
+  </section>
+  {% elif run.status == "failed" %}
+  <section class="card">
+    <h2>Could not finish</h2>
+    <p>{{ run.error }}</p>
+  </section>
+  {% endif %}
+
+  {% if run.answer %}{% set a = run.answer %}
+  <section class="card">
+    <p class="muted small">You asked: “{{ run.request }}”</p>
+    <p class="summary">{{ a.summary }}</p>
+    {% if run.unverified_figures %}
+    <p class="small"><span class="badge unverified">{{ run.unverified_figures }} unverified figure(s)</span>
+      Figures marked [unverified] could not be traced to a source or a computed value. Do not rely on them.</p>
+    {% endif %}
+
+    {% if a.recommendations %}
+    <h2>Recommendations</h2>
+    {% for r in a.recommendations %}
+    <div class="item">
+      <div class="row">
+        <h3>{{ r.product }}</h3>
+        <span class="badge verdict">{{ verdict_labels.get(r.verdict, r.verdict) }}</span>
+        {% if r.listing_id %}<a class="small" href="/listing/{{ r.listing_id }}">Product page &amp; price history</a>{% endif %}
+      </div>
+      <p>{{ r.price_summary }}</p>
+      {% if r.why %}<ul>{% for w in r.why %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
+      {% if r.trade_offs %}
+      <p class="secondary small" style="margin-bottom:0.2rem">Trade-offs</p>
+      <ul class="small">{% for t in r.trade_offs %}<li>{{ t }}</li>{% endfor %}</ul>
+      {% endif %}
+      {% if r.evidence_ids %}
+      <p class="small muted">Sources:
+        {% for e in r.evidence_ids %}<a href="#src-{{ e }}">[{{ loop.index }}]</a> {% endfor %}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if a.deal_insights %}<h2>Deal insights</h2><ul>{% for d in a.deal_insights %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
+    {% if a.timing %}<h2>Buy now or wait?</h2><p>{{ a.timing }}</p>{% endif %}
+    {% if a.risks_and_conflicts %}<h2>Risks and conflicts</h2><ul>{% for d in a.risks_and_conflicts %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
+    {% if a.questions_for_user %}<h2>To narrow it down</h2><ul>{% for d in a.questions_for_user %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
+  </section>
+  {% endif %}
+
+  {% if run.items %}
+  <section class="card">
+    <h2>Prices and requirement check</h2>
+    <p class="muted small">Computed by code from the listings and offers found, never by the language model.
+      Offers are combined only when their terms allow it.</p>
+    {% for it in run.items %}{% set l = it.listing %}
+    <div class="item">
+      <div class="row">
+        <h3>{{ l.title[:110] }}</h3>
+      </div>
+      <p class="secondary small">
+        {{ l.marketplace.replace("_", " ") | title }}{% if l.seller %} · {{ l.seller }}{% endif %}
+        {% if l.condition != "new" %} · <span class="badge serious">{{ l.condition.replace("_", " ") }}</span>{% endif %}
+        {% if l.stale %} · <span class="badge stale">price may be out of date</span>{% endif %}
+        · <a href="/listing/{{ l.listing_id }}">details &amp; history</a>
+      </p>
+      <div class="prices">
+        <div><div class="label">Listed price</div><div class="value">{{ l.price | inr }}</div></div>
+        <div><div class="label">Best price for you</div><div class="value">{{ it.best_eligible | inr }}</div></div>
+        {% if it.best_conditional is not none and it.best_conditional < it.best_eligible %}
+        {% set ns = namespace(conds=[]) %}
+        {% for s in it.scenarios %}{% if s.conditional and s.net_after_cashback == it.best_conditional and not ns.conds %}{% set ns.conds = s.conditions %}{% endif %}{% endfor %}
+        <div>
+          <div class="label">If you meet the conditions</div>
+          <div class="value">{{ it.best_conditional | inr }}</div>
+          {% if ns.conds %}<div class="conditions">Needs: {{ ns.conds | join("; ") }}</div>{% endif %}
+        </div>
+        {% endif %}
+      </div>
+
+      {% if it.checks %}
+      <div class="table-wrap"><table>
+        <thead><tr><th>Requirement</th><th>Wanted</th><th>This product</th><th>Result</th></tr></thead>
+        <tbody>
+        {% for c in it.checks %}
+          <tr>
+            <td>{{ c.requirement }} <span class="muted small">({{ c.level }})</span></td>
+            <td>{{ c.expected }}</td>
+            <td>{{ c.actual or "not known" }}{% if c.note %} <span class="muted small">{{ c.note }}</span>{% endif %}</td>
+            <td><span class="badge {{ c.status }}">{{ c.status }}</span></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+      {% endif %}
+
+      {% if it.scenarios %}
+      <details>
+        <summary>Price scenarios ({{ it.scenarios | length }})</summary>
+        {% with scenarios = it.scenarios %}{% include "_scenarios.html" %}{% endwith %}
+      </details>
+      {% endif %}
+
+      {% if it.by_payment_method %}
+      <details>
+        <summary>Price with each of your cards</summary>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Payment</th><th class="num">Net price</th></tr></thead>
+          <tbody>{% for pm, price in it.by_payment_method.items() %}<tr><td>{{ pm }}</td><td class="num">{{ price | inr }}</td></tr>{% endfor %}</tbody>
+        </table></div>
+      </details>
+      {% endif %}
+
+      {% if it.offers_not_applicable %}
+      <details><summary>Offers that don't apply ({{ it.offers_not_applicable | length }})</summary>
+        <ul class="small">{% for o in it.offers_not_applicable %}<li>{{ o }}</li>{% endfor %}</ul>
+      </details>
+      {% endif %}
+
+      {% if it.history %}{% set h = it.history %}
+      <p class="small">
+        <strong>Price history:</strong> {{ h.coverage_days }} days observed ({{ h.coverage }} coverage);
+        low {{ h.minimum | inr }}, high {{ h.maximum | inr }}, average {{ h.average | inr }}; trend {{ h.trend }}.
+        {% if h.note %}{{ h.note }}{% endif %}
+        {% if h.pre_sale_hike %}<br><span class="badge serious">possible pre-sale price rise</span> {{ h.pre_sale_hike }}{% endif %}
+      </p>
+      {% endif %}
+      {% if it.timing %}<p class="small"><strong>Timing:</strong> {{ it.timing }}</p>{% endif %}
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {% if run.proposed_actions %}
+  <section class="card">
+    <h2>Suggested next steps</h2>
+    <p class="muted small">Nothing is saved until you confirm.</p>
+    <ul class="actions-list">
+      {% for act in run.proposed_actions %}
+      <li>
+        <span class="badge">{{ action_labels.get(act.action, act.action) }}</span>
+        <span>{{ act.description }}{% if act.target_price %} (target {{ act.target_price | inr }}){% endif %}</span>
+        <span class="spacer"></span>
+        {% if act.status == "pending" and act.action == "save_preference" %}
+        <a class="button quiet" href="/profile">Open profile</a>
+        <button type="button" class="quiet" data-api="/v1/runs/{{ run.run_id }}/actions/{{ act.id }}/dismiss" data-done="Dismissed">Dismiss</button>
+        {% elif act.status == "pending" %}
+        <button type="button" data-api="/v1/runs/{{ run.run_id }}/actions/{{ act.id }}/confirm" data-done="Saved ✓">Confirm</button>
+        <button type="button" class="quiet" data-api="/v1/runs/{{ run.run_id }}/actions/{{ act.id }}/dismiss" data-done="Dismissed">Dismiss</button>
+        {% else %}
+        <span class="muted small">{{ act.status }}</span>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% if run.uncertainties or run.conflicts %}
+  <section class="card">
+    {% if run.uncertainties %}<h2>What we're not sure about</h2><ul>{% for u in run.uncertainties %}<li>{{ u }}</li>{% endfor %}</ul>{% endif %}
+    {% if run.conflicts %}<h2>Conflicting information</h2><ul>{% for c in run.conflicts %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}
+  </section>
+  {% endif %}
+
+  {% if run.sources %}
+  <section class="card">
+    <h2>Sources</h2>
+    <ol class="sources small">
+      {% for s in run.sources %}
+      <li id="src-{{ s.id }}">
+        {{ s.claim }}
+        <span class="muted">— {% if s.url %}<a href="{{ s.url }}" rel="noopener noreferrer nofollow" target="_blank">{{ s.source_name }}</a>{% else %}{{ s.source_name }}{% endif %},
+          {{ s.retrieved_at.strftime("%d %b %Y %H:%M") }} UTC</span>
+        <span class="badge {{ s.verification }}">{{ s.verification.replace("_", " ") }}</span>
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  <details class="small muted">
+    <summary>Run details</summary>
+    <p>Run {{ run.run_id }} · {{ run.status.replace("_", " ") }} · intent {{ run.intent or "–" }} ·
+      {{ run.tool_calls }} tool calls · {{ run.llm_calls }} model calls ·
+      {{ run.input_tokens }} input / {{ run.output_tokens }} output tokens ·
+      <a href="/v1/runs/{{ run.run_id }}">JSON</a></p>
+    {% if run.warnings %}<ul>{% for w in run.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
+  </details>
+</article>

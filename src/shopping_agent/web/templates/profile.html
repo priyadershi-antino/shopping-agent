@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}My cards &amp; profile · Shopping Agent{% endblock %}
+{% block content %}
+<h1>My cards &amp; profile</h1>
+<p class="secondary">Used to check which offers you are eligible for. We store only the bank and card type
+  (credit or debit). <strong>Never enter card numbers, CVV, OTPs or passwords</strong>: they are not needed and not accepted.</p>
+
+<div class="grid-2">
+  <section class="card">
+    <h2 style="margin-top:0">Cards</h2>
+    {% if profile.payment_methods %}
+    <ul class="actions-list">
+      {% for m in profile.payment_methods %}
+      <li><span>{{ m.describe() }}{% if m.network %} <span class="muted small">({{ m.network }})</span>{% endif %}</span>
+        <span class="spacer"></span>
+        <button type="button" class="quiet" data-method="DELETE"
+          data-api="/v1/profile/payment-methods?issuer={{ m.issuer | urlencode }}&amp;card_type={{ m.card_type }}">Remove</button></li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">No cards saved. Card offers will be shown as conditional.</p>{% endif %}
+    <form data-api="/v1/profile/payment-methods" data-method="POST">
+      <div class="form-row">
+        <div><label for="pm-issuer">Bank</label><input id="pm-issuer" type="text" name="issuer" required minlength="2" maxlength="80" placeholder="HDFC" autocomplete="off"></div>
+        <div class="narrow"><label for="pm-type">Type</label>
+          <select id="pm-type" name="card_type"><option value="credit">Credit</option><option value="debit">Debit</option></select></div>
+        <div class="narrow"><label for="pm-network">Network (optional)</label>
+          <select id="pm-network" name="network"><option value="">–</option><option>visa</option><option>mastercard</option><option>rupay</option><option>amex</option><option>diners</option></select></div>
+      </div>
+      <button type="submit">Add card</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2 style="margin-top:0">Memberships</h2>
+    {% if profile.memberships %}
+    <ul class="actions-list">
+      {% for name in profile.memberships | sort %}
+      <li><span>{{ name }}</span><span class="spacer"></span>
+        <button type="button" class="quiet" data-method="DELETE" data-api="/v1/profile/memberships/{{ name | urlencode }}">Remove</button></li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">None saved.</p>{% endif %}
+    <form data-api="/v1/profile/memberships" data-method="POST">
+      <div class="form-row">
+        <div><label for="mem-name">Membership</label><input id="mem-name" type="text" name="name" required minlength="2" maxlength="80" placeholder="amazon prime, flipkart plus" list="known-memberships"></div>
+        <button type="submit">Add</button>
+      </div>
+      <datalist id="known-memberships"><option value="amazon prime"><option value="flipkart plus"><option value="flipkart black"></datalist>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2 style="margin-top:0">Devices to exchange</h2>
+    {% if profile.exchange_devices %}
+    <ul>{% for d in profile.exchange_devices %}<li>{{ d.category }}{% if d.model %}: {{ d.model }}{% endif %}{% if d.condition %} ({{ d.condition }}){% endif %}</li>{% endfor %}</ul>
+    <button type="button" class="quiet" data-method="DELETE" data-api="/v1/profile/exchange-devices">Remove all</button>
+    {% else %}<p class="muted">None saved.</p>{% endif %}
+    <form data-api="/v1/profile/exchange-devices" data-method="POST" style="margin-top:0.75rem">
+      <div class="form-row">
+        <div class="narrow"><label for="ex-cat">Category</label><input id="ex-cat" type="text" name="category" required placeholder="smartphone"></div>
+        <div><label for="ex-model">Model</label><input id="ex-model" type="text" name="model" placeholder="Acme Phone 12"></div>
+        <div class="narrow"><label for="ex-cond">Condition</label>
+          <select id="ex-cond" name="condition"><option value="">–</option><option>good</option><option>average</option><option>below average</option></select></div>
+      </div>
+      <button type="submit">Add device</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2 style="margin-top:0">Preferences</h2>
+    {% if preferences %}
+    <ul class="actions-list">
+      {% for k, v in preferences.items() %}
+      <li><span><strong>{{ k.replace("_", " ") }}</strong>: {{ v | tojson }}</span><span class="spacer"></span>
+        <button type="button" class="quiet" data-method="DELETE" data-api="/v1/profile/preferences/{{ k | urlencode }}">Remove</button></li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">None saved.</p>{% endif %}
+    <form data-api="/v1/profile/preferences/{key}" data-method="PUT">
+      <div class="form-row">
+        <div class="narrow"><label for="pref-key">Preference</label>
+          <input id="pref-key" type="text" name="key" required list="known-prefs" placeholder="prefers_emi"></div>
+        <div><label for="pref-value">Value</label>
+          <input id="pref-value" type="text" name="value" data-type="json" required placeholder='true, 80000, ["Acme", "Nova"]'></div>
+        <button type="submit">Save</button>
+      </div>
+      <datalist id="known-prefs">{% for k, help in known.items() %}<option value="{{ k }}">{{ help }}</option>{% endfor %}</datalist>
+    </form>
+    <p class="muted small">{% for k, help in known.items() %}<code>{{ k }}</code>: {{ help }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  </section>
+</div>
+
+<section class="card">
+  <h2 style="margin-top:0">Forget me</h2>
+  <p class="secondary">Delete every card, membership, device and preference saved here.</p>
+  <button type="button" class="danger" data-method="DELETE" data-api="/v1/profile"
+    data-confirm="Delete your saved cards, memberships, devices and preferences?">Delete my profile data</button>
+</section>
+{% endblock %}

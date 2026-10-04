@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Watchlist &amp; sales · Shopping Agent{% endblock %}
+{% block content %}
+<h1>Watchlist &amp; sales</h1>
+
+<section class="card">
+  <div class="row">
+    <h2 style="margin-top:0">Sale prep</h2>
+    {% if plan.event %}<span class="badge {{ 'verified' if plan.verified else 'unverified' }}">{{ 'dates verified' if plan.verified else 'dates not confirmed' }}</span>{% endif %}
+  </div>
+  <p>{{ plan.summary }}</p>
+  <ul class="actions-list">
+    {% for step in plan.steps %}
+    <li>
+      <span class="badge {{ {True: 'meets', False: 'partial', None: ''}[step.done] }}">{{ {True: 'done', False: 'to do', None: 'tip'}[step.done] }}</span>
+      <span><strong>{{ step.title }}</strong>: {{ step.detail }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  <details>
+    <summary>Add a sale you know about</summary>
+    <form data-api="/v1/sale-events" data-method="POST">
+      <div class="form-row">
+        <div><label for="se-name">Name</label><input id="se-name" type="text" name="name" required minlength="3" placeholder="Big Billion Days"></div>
+        <div class="narrow"><label for="se-platform">Platform</label>
+          <select id="se-platform" name="platform"><option value="flipkart">Flipkart</option><option value="amazon">Amazon</option><option value="croma">Croma</option><option value="reliance_digital">Reliance Digital</option><option value="vijay_sales">Vijay Sales</option><option value="tata_cliq">Tata CLiQ</option></select></div>
+      </div>
+      <div class="form-row">
+        <div><label for="se-start">Starts (with timezone)</label><input id="se-start" type="text" name="start" required placeholder="2026-10-10T00:00:00+05:30"></div>
+        <div><label for="se-end">Ends</label><input id="se-end" type="text" name="end" required placeholder="2026-10-16T23:59:00+05:30"></div>
+        <div class="narrow"><label for="se-early">Early access (hours)</label><input id="se-early" type="number" name="early_access_hours" min="0" max="72" value="0"></div>
+      </div>
+      <div class="form-row">
+        <div><label for="se-for">Early access for</label><input id="se-for" type="text" name="early_access_for" placeholder="flipkart plus"></div>
+        <div><label for="se-banks">Partner banks (comma-separated)</label><input id="se-banks" type="text" name="partner_banks" data-type="list" placeholder="HDFC, ICICI"></div>
+        <div><label for="se-src">Where you saw it (links)</label><input id="se-src" type="text" name="official_sources" data-type="list"></div>
+      </div>
+      <button type="submit">Save sale</button>
+      <span class="muted small">Saved as user-provided, not verified.</span>
+    </form>
+  </details>
+</section>
+
+<section class="card">
+  <div class="row">
+    <h2 style="margin-top:0">Tracked products</h2>
+    <span class="spacer"></span>
+    <button type="button" class="quiet" data-api="/v1/worker/run-once" data-done="Checked ✓ (reload to see)">Check due items now</button>
+  </div>
+  {% if items %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Product</th><th class="num">Listed</th><th class="num">For you</th><th>Targets</th><th>Last check</th><th></th></tr></thead>
+    <tbody>
+    {% for w in items %}
+      <tr>
+        <td>{% if w.listing %}<a href="/listing/{{ w.listing.listing_id }}">{{ w.label }}</a><br><span class="muted small">{{ w.listing.marketplace.replace("_", " ") | title }}</span>{% else %}{{ w.label }}{% endif %}
+          {% if not w.active %}<span class="badge">paused</span>{% endif %}</td>
+        <td class="num">{{ w.last_price | inr }}</td>
+        <td class="num"><strong>{{ w.last_effective | inr }}</strong></td>
+        <td class="small">
+          {% if w.target_price %}listed ≤ {{ w.target_price | inr }}<br>{% endif %}
+          {% if w.target_effective %}for you ≤ {{ w.target_effective | inr }}<br>{% endif %}
+          {% if w.target_drop_pct %}drop ≥ {{ w.target_drop_pct }}%{% endif %}
+          {% if not (w.target_price or w.target_effective or w.target_drop_pct) %}<span class="muted">none</span>{% endif %}
+        </td>
+        <td class="small">{% if w.last_checked_at %}{{ w.last_checked_at.strftime("%d %b %H:%M") }} UTC{% else %}not yet{% endif %}
+          <br><span class="muted">next {{ w.next_check_at.strftime("%d %b %H:%M") }} · {{ w.monitor_priority }}</span>
+          {% if w.last_error %}<br><span class="badge critical">{{ w.last_error[:80] }}</span>{% endif %}</td>
+        <td>
+          <button type="button" class="quiet" data-api="/v1/watchlist/{{ w.id }}/check">Check</button>
+          <button type="button" class="quiet" data-method="DELETE" data-api="/v1/watchlist/{{ w.id }}" data-confirm="Stop tracking {{ w.label }}?">Remove</button>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <p class="muted small">"For you" is the best price with your saved cards and memberships, without extra conditions
+    such as exchange. Items closer to their target are checked more often; during a sale everything is checked more often.</p>
+  {% else %}
+  <p class="muted">Nothing tracked yet. Open a product (ask a question or paste a link) and use "Track this".</p>
+  {% endif %}
+  <details>
+    <summary>Track a product by link</summary>
+    <form data-api="/v1/watchlist" data-method="POST">
+      <div class="form-row">
+        <div><label for="w-url">Product link</label><input id="w-url" type="url" name="url" required></div>
+        <div class="narrow"><label for="w-eff">Alert when price for you ≤</label><input id="w-eff" type="number" name="target_effective" min="1"></div>
+        <div class="narrow"><label for="w-pri">Priority</label><select id="w-pri" name="priority"><option>normal</option><option>high</option><option>low</option></select></div>
+      </div>
+      <button type="submit">Track</button>
+    </form>
+  </details>
+</section>
+{% endblock %}

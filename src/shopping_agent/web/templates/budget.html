@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Budget planner · Shopping Agent{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Budget planner</h1>
+  <p class="secondary small">Several things to buy with one budget? List the options for each item with the price you
+    can actually get (for example the "best price for you" from a product page). Every combination that fits is
+    worked out by code.</p>
+  <form method="get" action="/budget">
+    <div class="form-row">
+      <div class="narrow"><label for="b-budget">Total budget</label>
+        <input id="b-budget" type="text" name="budget" required value="{{ budget }}" placeholder="1L or 100000"></div>
+      <div class="narrow"><label for="b-sort">Show first</label>
+        <select id="b-sort" name="sort">
+          <option value="use_most_budget" {% if sort == "use_most_budget" %}selected{% endif %}>Uses most of the budget</option>
+          <option value="save_most" {% if sort == "save_most" %}selected{% endif %}>Saves the most</option>
+        </select></div>
+    </div>
+    <label for="b-items">Options, one per line: <code>item: product = price</code>. <code>item x2:</code> for two units, <code>item?:</code> if optional.</label>
+    <textarea id="b-items" name="items" required style="min-height:9rem"
+      placeholder="phone: Nova Pixelon 9 = 30,599&#10;phone: Acme Volt 5G = 18,999&#10;tablet: Zenith Tab S Wi-Fi = 27,999&#10;earbuds?: Orbit Buds = 2,499">{{ items }}</textarea>
+    <div class="row" style="margin-top:0.6rem"><button type="submit">Plan</button></div>
+  </form>
+  {% if error %}<p class="form-message error">{{ error }}</p>{% endif %}
+</section>
+
+{% if plan %}
+<section class="card">
+  {% if plan.combinations %}
+  <h2 style="margin-top:0">{{ plan.feasible_count }} combination(s) fit {{ plan.budget | inr }}</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Combination</th><th class="num">Total</th><th class="num">Left over</th></tr></thead>
+    <tbody>{% for c in plan.combinations %}
+      <tr><td>{% for p in c.picks %}{{ p.slot }}: {{ p.name }}{% if p.quantity > 1 %} ×{{ p.quantity }}{% endif %} ({{ p.line_total | inr }}){% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+        <td class="num">{{ c.total | inr }}</td><td class="num">{{ c.remaining | inr }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% if plan.feasible_count > plan.combinations | length %}<p class="muted small">Showing {{ plan.combinations | length }} of {{ plan.feasible_count }}.</p>{% endif %}
+  {% else %}
+  <h2 style="margin-top:0">Nothing fits {{ plan.budget | inr }}</h2>
+  {% if plan.shortfall %}<p>The cheapest combination costs {{ plan.cheapest_total | inr }}, {{ plan.shortfall | inr }} over budget.</p>{% endif %}
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

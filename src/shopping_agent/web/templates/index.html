@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "_ask.html" %}
+<div id="result" aria-live="polite"></div>
+
+<div class="grid-2">
+  <section class="card">
+    <h2>Check a product link</h2>
+    <form method="get" action="/link">
+      <label for="url">Amazon, Flipkart or manufacturer link</label>
+      <div class="form-row">
+        <div><input id="url" type="url" name="url" required placeholder="https://www.amazon.in/dp/…"></div>
+        <button type="submit" class="quiet">Open</button>
+      </div>
+    </form>
+    <p class="muted small">Links are read for their product ID only. Marketplace pages are not scraped.</p>
+  </section>
+  <section class="card">
+    <h2>Recent questions</h2>
+    {% if recent %}
+    <ul class="recent">
+      {% for r in recent %}
+      <li>
+        <a href="/runs/{{ r.id }}">{{ r.request[:90] }}{% if r.request|length > 90 %}…{% endif %}</a>
+        <span class="muted small">{{ r.created_at.strftime("%d %b, %H:%M") }} UTC · {{ r.status.replace("_", " ") }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">Nothing yet.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

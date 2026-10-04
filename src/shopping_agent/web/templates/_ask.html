@@ -1,0 +1,15 @@
+<section class="card" aria-labelledby="ask-title">
+  <h1 id="ask-title">What are you shopping for?</h1>
+  <p class="secondary small">Describe what you need, paste a product link, or paste offer terms.
+    Mention your cards (bank and credit/debit only, never card numbers) to see the price you can actually get.</p>
+  <form id="ask-form" data-tool-labels='{{ tool_labels | tojson }}' {% if run %}data-last-run="{{ run.run_id }}"{% endif %}>
+    <label for="message">Your request</label>
+    <textarea id="message" name="message" required minlength="2" maxlength="4000"
+      placeholder="e.g. Laptop under 80k for programming, I have an HDFC credit card"></textarea>
+    <div class="row" style="margin-top:0.6rem">
+      <button type="submit">Ask</button>
+      <label class="check" hidden><input type="checkbox" id="follow-up"> Follow-up to the last answer</label>
+    </div>
+  </form>
+  <ul id="progress" class="progress" hidden aria-live="polite"></ul>
+</section>

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Shopping Agent{% endblock %}
+{% block content %}
+<section class="card" style="max-width:520px">
+  <h1>Enter the access key</h1>
+  <p class="secondary small">This server is protected by an access key (<code>API_KEY</code> in its settings).
+    It is stored in an HTTP-only cookie in this browser.</p>
+  <form data-api="/ui/key" data-method="POST" data-redirect="/">
+    <label for="key">Access key</label>
+    <div class="form-row">
+      <div><input id="key" type="password" name="value" required autocomplete="current-password"></div>
+      <button type="submit">Continue</button>
+    </div>
+  </form>
+</section>
+{% endblock %}
