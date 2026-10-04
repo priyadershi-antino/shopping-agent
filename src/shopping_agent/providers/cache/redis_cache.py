@@ -28,10 +28,10 @@ class RedisCache:
     async def delete(self, key: str) -> None:
         await self._client.delete(self._k(key))
 
-    async def incr(self, key: str, ttl_s: int) -> int:
+    async def incr(self, key: str, ttl_s: int, by: int = 1) -> int:
         k = self._k(key)
         async with self._client.pipeline(transaction=True) as pipe:
-            pipe.incr(k)
+            pipe.incrby(k, by)
             pipe.expire(k, ttl_s, nx=True)
             count, _ = await pipe.execute()
         return int(count)

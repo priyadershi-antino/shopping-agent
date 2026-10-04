@@ -19,6 +19,8 @@ class ProductQuery(BaseModel):
     min_price: Decimal | None = None
     max_price: Decimal | None = None
     limit: int = Field(default=20, ge=1, le=50)
+    # Only these platforms are wanted (None = all); lets a provider skip searches it need not run.
+    marketplaces: list[Marketplace] | None = None
 
 
 class ProductRef(BaseModel):

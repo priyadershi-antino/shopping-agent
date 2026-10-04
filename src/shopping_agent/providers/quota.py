@@ -33,8 +33,10 @@ class QuotaGuard:
         limit = self._limits.get(provider)
         if limit is None:
             return
-        used = await self._cache.incr(self._key(provider), _TWO_DAYS)
+        key = self._key(provider)
+        used = await self._cache.incr(key, _TWO_DAYS)
         if used > limit:
+            await self._cache.incr(key, _TWO_DAYS, by=-1)  # a refused request is not spent
             raise QuotaExhaustedError(provider)
 
     async def used(self, provider: str) -> int:

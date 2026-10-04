@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -17,6 +18,19 @@ class Marketplace(StrEnum):
     TATA_CLIQ = "tata_cliq"
     MANUFACTURER = "manufacturer"
     OTHER = "other"
+
+
+def parse_marketplaces(values: Iterable[str]) -> frozenset[Marketplace] | None:
+    """Platform names (as used in settings, the API and the UI) to a set; None means "all".
+    Unknown names raise ValueError."""
+    names = [v.strip().lower().replace(" ", "_") for v in values if v and v.strip()]
+    if not names:
+        return None
+    try:
+        return frozenset(Marketplace(n) for n in names)
+    except ValueError as exc:
+        known = ", ".join(m.value for m in Marketplace)
+        raise ValueError(f"unknown platform ({exc}); choose from: {known}") from exc
 
 
 class Condition(StrEnum):

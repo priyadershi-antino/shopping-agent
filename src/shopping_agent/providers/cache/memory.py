@@ -28,12 +28,12 @@ class InMemoryCache:
     async def delete(self, key: str) -> None:
         self._data.pop(key, None)
 
-    async def incr(self, key: str, ttl_s: int) -> int:
+    async def incr(self, key: str, ttl_s: int, by: int = 1) -> int:
         entry = self._live(key)
         if entry is None:
-            self._data[key] = ("1", self._clock() + ttl_s)
-            return 1
-        count = int(entry[0]) + 1
+            self._data[key] = (str(by), self._clock() + ttl_s)
+            return by
+        count = int(entry[0]) + by
         self._data[key] = (str(count), entry[1])
         return count
 

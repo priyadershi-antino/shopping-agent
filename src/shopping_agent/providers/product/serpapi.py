@@ -5,15 +5,17 @@ Prices from Google Shopping are aggregator observations, so they are labelled
 `search_result` / `source_reported`. All parsing is defensive: missing fields stay unknown.
 """
 
+import logging
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from shopping_agent.domain.common import SourceType, Verification
 from shopping_agent.domain.product import Marketplace
+from shopping_agent.errors import ProviderError, QuotaExhaustedError
 from shopping_agent.providers.http import ProviderHttp
 from shopping_agent.providers.product.base import (
     ProductDetails,
@@ -29,8 +31,19 @@ from shopping_agent.providers.product.marketplaces import (
 )
 from shopping_agent.services.normalization import detect_brand, detect_condition
 
+log = logging.getLogger(__name__)
+
 SERPAPI_URL = "https://serpapi.com/search"
 _FOREIGN_CURRENCY = re.compile(r"[$€£¥]|\bUSD\b|\bEUR\b")
+# Google Shopping lists many sellers; naming the wanted store in the query makes it return
+# that store's listings (without it a laptop search can contain no Flipkart result at all).
+_STORE_WORDS = {
+    Marketplace.FLIPKART: "flipkart",
+    Marketplace.CROMA: "croma",
+    Marketplace.RELIANCE_DIGITAL: "reliance digital",
+    Marketplace.VIJAY_SALES: "vijay sales",
+    Marketplace.TATA_CLIQ: "tata cliq",
+}
 _MODEL_KEYS = ("item model number", "model number", "model name", "model")
 
 
@@ -99,12 +112,15 @@ class SerpApiProductProvider:
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         memo_ttl_s: float = 600,
+        acquire: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._http = http
         self._api_key = api_key
         self._clock = clock
         self._memo_ttl_s = memo_ttl_s
         self._memo: dict[str, tuple[float, dict[str, Any]]] = {}
+        # Counts an extra SerpApi request against the daily budget (the registry counts one).
+        self._acquire = acquire
 
     async def _get(self, params: dict[str, str]) -> dict[str, Any]:
         data = await self._http.request_json(
@@ -120,9 +136,86 @@ class SerpApiProductProvider:
     # --- search ---
 
     async def search(self, query: ProductQuery) -> list[ProviderListing]:
+        """Amazon.in search (real marketplace listings) and Google Shopping (per-store prices,
+        which include Flipkart, Croma and others). Only what the query's platforms need is run:
+        each is one SerpApi search against the daily budget."""
+        wanted = set(query.marketplaces) if query.marketplaces else None
+        use_google = wanted is None or bool(wanted - {Marketplace.AMAZON})
+        use_amazon = wanted is None or Marketplace.AMAZON in wanted
+        amazon: list[ProviderListing] = []
+        if use_google and use_amazon:
+            # The registry counted one request; the second must be counted here.
+            amazon = await self._search_amazon_counted(query)
+        elif use_amazon:
+            amazon = await self._search_amazon(query)
+        google = await self._search_google(query, wanted) if use_google else []
+        return [*amazon, *google][: max(query.limit, len(amazon))]
+
+    async def _search_amazon_counted(self, query: ProductQuery) -> list[ProviderListing]:
+        try:
+            if self._acquire is not None:
+                await self._acquire()
+            return await self._search_amazon(query)
+        except (QuotaExhaustedError, ProviderError) as exc:
+            log.warning("Amazon.in search skipped: %s", exc)
+            return []
+
+    async def _search_amazon(self, query: ProductQuery) -> list[ProviderListing]:
+        params = {
+            "engine": "amazon",
+            "k": query.query,
+            "amazon_domain": "amazon.in",
+            "language": "en_IN",
+        }
+        if query.min_price is not None:
+            params["low_price"] = str(int(query.min_price))
+        if query.max_price is not None:
+            params["high_price"] = str(int(query.max_price))
+        data = await self._get(params)
+        listings: list[ProviderListing] = []
+        for item in data.get("organic_results") or []:
+            if isinstance(item, dict) and (parsed := self._from_amazon(item, query.category)):
+                listings.append(parsed)
+            if len(listings) >= query.limit:
+                break
+        return listings
+
+    def _from_amazon(self, item: dict[str, Any], category: str | None) -> ProviderListing | None:
+        title, asin = item.get("title"), item.get("asin")
+        price = _decimal(item.get("extracted_price"))
+        if not isinstance(title, str) or not isinstance(asin, str) or price is None:
+            return None
+        if item.get("sponsored") or _FOREIGN_CURRENCY.search(str(item.get("price", ""))):
+            return None
+        return ProviderListing(
+            provider=self.name,
+            source_key=f"amazon:{asin}",
+            marketplace=Marketplace.AMAZON,
+            external_id=asin,
+            url=item.get("link_clean") or f"https://www.amazon.in/dp/{asin}",
+            title=title,
+            brand=detect_brand(title),
+            category=category,
+            price=price,
+            mrp=_decimal(item.get("extracted_old_price")),
+            availability=availability_from_text(item.get("delivery")),
+            condition=detect_condition(title),
+            rating=_float(item.get("rating")),
+            rating_count=_int(item.get("reviews")),
+            source_type=SourceType.MARKETPLACE_LISTING,
+            source_name="Amazon.in search via SerpApi",
+            verification=Verification.SOURCE_REPORTED,
+            observed_at=self._clock(),
+        )
+
+    async def _search_google(
+        self, query: ProductQuery, wanted: set[Marketplace] | None
+    ) -> list[ProviderListing]:
+        stores = [_STORE_WORDS[m] for m in sorted(wanted or ()) if m in _STORE_WORDS]
+        text = f"{query.query} {' '.join(stores)}" if wanted and len(stores) <= 2 else query.query
         params = {
             "engine": "google_shopping",
-            "q": query.query,
+            "q": text,
             "gl": "in",
             "hl": "en",
             "google_domain": "google.co.in",
@@ -139,7 +232,8 @@ class SerpApiProductProvider:
                 items.extend(group.get("shopping_results") or [])
         listings: list[ProviderListing] = []
         for item in items:
-            if isinstance(item, dict) and (parsed := self._from_shopping(item, query.category)):
+            parsed = self._from_shopping(item, query.category) if isinstance(item, dict) else None
+            if parsed is not None and (wanted is None or parsed.marketplace in wanted):
                 listings.append(parsed)
             if len(listings) >= query.limit:
                 break

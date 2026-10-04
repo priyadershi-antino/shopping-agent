@@ -3,6 +3,7 @@
 import json
 from collections.abc import AsyncIterator
 from decimal import Decimal
+from typing import Any
 
 import httpx
 import pytest
@@ -10,7 +11,12 @@ import respx
 
 from shopping_agent.domain.common import SourceType
 from shopping_agent.domain.product import Availability, Condition, Marketplace
-from shopping_agent.errors import ProviderError, RateLimitedError, UnsafeUrlError
+from shopping_agent.errors import (
+    ProviderError,
+    QuotaExhaustedError,
+    RateLimitedError,
+    UnsafeUrlError,
+)
 from shopping_agent.providers.http import ProviderHttp
 from shopping_agent.providers.product.base import ProductQuery, ProductRef
 from shopping_agent.providers.product.marketplaces import (
@@ -31,6 +37,9 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
 
 def http(client: httpx.AsyncClient, name: str = "serpapi") -> ProviderHttp:
     return ProviderHttp(name, client, attempts=2, max_wait_s=0)
+
+
+GOOGLE_ONLY = ProductQuery(query="x", marketplaces=[Marketplace.FLIPKART, Marketplace.OTHER])
 
 
 def serpapi(client: httpx.AsyncClient) -> SerpApiProductProvider:
@@ -74,10 +83,19 @@ SHOPPING = {
 async def test_serpapi_search_parsing(client: httpx.AsyncClient) -> None:
     route = respx.get(SERPAPI_URL).mock(return_value=httpx.Response(200, json=SHOPPING))
     listings = await serpapi(client).search(
-        ProductQuery(query="gaming laptop", category="laptop", max_price=Decimal("80000"))
+        ProductQuery(
+            query="gaming laptop",
+            category="laptop",
+            max_price=Decimal("80000"),
+            marketplaces=[Marketplace.AMAZON, Marketplace.FLIPKART],
+        )
     )
-    params = route.calls.last.request.url.params
-    assert params["engine"] == "google_shopping"
+    assert route.call_count == 2  # Amazon.in search plus Google Shopping
+    params = next(
+        c.request.url.params
+        for c in route.calls
+        if c.request.url.params["engine"] == "google_shopping"
+    )
     assert params["gl"] == "in"
     assert params["max_price"] == "80000"
     assert len(listings) == 2  # foreign currency and price-less items dropped
@@ -169,11 +187,103 @@ async def test_serpapi_error_payload_means_no_results(client: httpx.AsyncClient)
     assert await serpapi(client).search(ProductQuery(query="xyz")) == []
 
 
+AMAZON_SEARCH = {
+    "organic_results": [
+        {
+            "asin": "B0AAA",
+            "title": "Lenovo V15 G4 AMD Ryzen 5 Laptop",
+            "link_clean": "https://www.amazon.in/dp/B0AAA/",
+            "extracted_price": 58190,
+            "extracted_old_price": 78990,
+            "price": "₹58,190",
+            "rating": 4.0,
+            "reviews": 511,
+            "delivery": ["FREE delivery Tue, 6 Oct"],
+        },
+        {"asin": "B0SPONS", "title": "Sponsored", "extracted_price": 40000, "sponsored": True},
+        {"asin": "B0NOPRICE", "title": "No price"},
+    ]
+}
+
+
+def _engine(call: Any) -> str:
+    return str(call.request.url.params["engine"])
+
+
+@respx.mock
+async def test_amazon_only_search_runs_one_amazon_request(client: httpx.AsyncClient) -> None:
+    route = respx.get(SERPAPI_URL).mock(return_value=httpx.Response(200, json=AMAZON_SEARCH))
+    listings = await serpapi(client).search(
+        ProductQuery(
+            query="laptop",
+            min_price=Decimal("30000"),
+            max_price=Decimal("70000"),
+            marketplaces=[Marketplace.AMAZON],
+        )
+    )
+    assert [_engine(c) for c in route.calls] == ["amazon"]
+    params = route.calls.last.request.url.params
+    assert params["amazon_domain"] == "amazon.in"
+    assert params["k"] == "laptop"
+    assert (params["low_price"], params["high_price"]) == ("30000", "70000")
+    assert len(listings) == 1  # sponsored and price-less results are dropped
+    item = listings[0]
+    assert item.marketplace is Marketplace.AMAZON
+    assert item.external_id == "B0AAA"
+    assert item.source_key == "amazon:B0AAA"  # same identity as a link lookup
+    assert item.url == "https://www.amazon.in/dp/B0AAA/"
+    assert item.price == Decimal("58190")
+    assert item.mrp == Decimal("78990")
+    assert item.source_type is SourceType.MARKETPLACE_LISTING
+
+
+@respx.mock
+async def test_google_search_keeps_only_the_requested_platforms(
+    client: httpx.AsyncClient,
+) -> None:
+    route = respx.get(SERPAPI_URL).mock(return_value=httpx.Response(200, json=SHOPPING))
+    listings = await serpapi(client).search(
+        ProductQuery(query="laptop", marketplaces=[Marketplace.FLIPKART])
+    )
+    assert [_engine(c) for c in route.calls] == ["google_shopping"]  # no Amazon search
+    assert route.calls.last.request.url.params["q"] == "laptop flipkart"  # names the store
+    assert {x.marketplace for x in listings} == {Marketplace.FLIPKART}
+
+
+@respx.mock
+async def test_second_serpapi_request_is_counted_and_survives_a_spent_budget(
+    client: httpx.AsyncClient,
+) -> None:
+    def answer(request: httpx.Request) -> httpx.Response:
+        body = AMAZON_SEARCH if request.url.params["engine"] == "amazon" else SHOPPING
+        return httpx.Response(200, json=body)
+
+    respx.get(SERPAPI_URL).mock(side_effect=answer)
+    counted: list[int] = []
+
+    async def acquire() -> None:
+        counted.append(1)
+
+    provider = SerpApiProductProvider(http(client), "k", clock=lambda: NOW, acquire=acquire)
+    both = await provider.search(ProductQuery(query="laptop"))
+    assert counted == [1]  # the registry counts the first request; this is the second
+    assert {x.marketplace for x in both} >= {Marketplace.AMAZON, Marketplace.FLIPKART}
+
+    async def spent() -> None:
+        raise QuotaExhaustedError("serpapi")
+
+    limited = SerpApiProductProvider(http(client), "k", clock=lambda: NOW, acquire=spent)
+    kept = await limited.search(ProductQuery(query="laptop"))
+    assert kept
+    assert not any(x.source_key.startswith("amazon:") for x in kept)  # Amazon.in search skipped
+    assert any(x.source_key.startswith("amazon:") for x in both)
+
+
 @respx.mock
 async def test_auth_failure_is_not_retried_and_hides_key(client: httpx.AsyncClient) -> None:
     route = respx.get(SERPAPI_URL).mock(return_value=httpx.Response(401))
     with pytest.raises(ProviderError) as info:
-        await serpapi(client).search(ProductQuery(query="x"))
+        await serpapi(client).search(GOOGLE_ONLY)
     assert route.call_count == 1
     assert "secret-key" not in str(info.value)
     assert not info.value.transient
@@ -183,20 +293,20 @@ async def test_auth_failure_is_not_retried_and_hides_key(client: httpx.AsyncClie
 async def test_rate_limit_and_server_errors_are_retried(client: httpx.AsyncClient) -> None:
     route = respx.get(SERPAPI_URL).mock(return_value=httpx.Response(429))
     with pytest.raises(RateLimitedError):
-        await serpapi(client).search(ProductQuery(query="x"))
+        await serpapi(client).search(GOOGLE_ONLY)
     assert route.call_count == 2
 
     respx.get(SERPAPI_URL).mock(
         side_effect=[httpx.Response(503), httpx.Response(200, json={"shopping_results": []})]
     )
-    assert await serpapi(client).search(ProductQuery(query="x")) == []
+    assert await serpapi(client).search(GOOGLE_ONLY) == []
 
 
 @respx.mock
 async def test_timeouts_become_transient_provider_errors(client: httpx.AsyncClient) -> None:
     respx.get(SERPAPI_URL).mock(side_effect=httpx.ReadTimeout("slow"))
     with pytest.raises(ProviderError, match="timed out"):
-        await serpapi(client).search(ProductQuery(query="x"))
+        await serpapi(client).search(GOOGLE_ONLY)
 
 
 @respx.mock

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from shopping_agent.domain.evidence import Evidence
 from shopping_agent.domain.offer import UserProfile
+from shopping_agent.domain.product import Marketplace
 from shopping_agent.domain.review import ReviewFindings
 from shopping_agent.llm.schema import tool_parameters
 from shopping_agent.providers.registry import ProviderRegistry
@@ -43,6 +44,11 @@ class ToolContext:
     run_id: str | None = None
     fetch_max_chars: int = 8_000
     review_analyzer: ReviewAnalyzerFn | None = None
+    # Platforms whose listings may be used (None = all). Set per request by the user.
+    platforms: frozenset[Marketplace] | None = None
+
+    def allows(self, marketplace: Marketplace | str) -> bool:
+        return self.platforms is None or Marketplace(marketplace) in self.platforms
 
 
 class ToolResult[O: BaseModel](BaseModel):

@@ -62,6 +62,7 @@ class Runtime:
             profile=profile or UserProfile(),
             clock=self.clock,
             fetch_max_chars=self.settings.fetch_max_chars,
+            platforms=self.settings.default_marketplaces(),
         )
 
     async def call_tool(

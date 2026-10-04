@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from shopping_agent.agent.facts import build_facts
 from shopping_agent.agent.orchestrator import AgentEvent, RunBudget, ShoppingAgent
 from shopping_agent.agent.state import AgentState, RunStatus
 from shopping_agent.agent.store import SqlRunStore
@@ -347,6 +348,23 @@ async def test_follow_up_keeps_the_earlier_products(tool_ctx: ToolContext, db: S
     assert {f.listing.listing_id for f in state.focus} >= set(carried[:1])
     assert "Earlier conversation:" in seen[0] and "Products from the earlier answer" in seen[0]
     assert state.final is not None and state.final.recommendations
+
+
+async def test_platform_selection_limits_every_listing(tool_ctx: ToolContext, db: Sessions) -> None:
+    agent, _ = make_agent(tool_ctx, db, discovery_handler)
+    everywhere = await agent.run("gaming laptop under 80k, I have an HDFC credit card")
+    assert {f.listing.marketplace.value for f in everywhere.focus} >= {"amazon", "flipkart"}
+    assert everywhere.platforms == []
+
+    state = await agent.run(
+        "gaming laptop under 80k, I have an HDFC credit card", platforms=["flipkart"]
+    )
+    assert state.status is RunStatus.COMPLETED, state.error
+    assert state.platforms == ["flipkart"]
+    assert state.focus
+    assert {f.listing.marketplace.value for f in state.focus} == {"flipkart"}
+    assert {s.marketplace.value for s in state.listings.values()} == {"flipkart"}
+    assert build_facts(state)["platforms_searched"] == ["flipkart"]
 
 
 async def test_facts_explain_card_offers_that_do_not_help(

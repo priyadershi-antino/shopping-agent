@@ -131,8 +131,10 @@ async def test_quota_guard_resets_daily() -> None:
     guard = QuotaGuard(cache, {"p": 2}, clock=lambda: now[0])
     await guard.acquire("p")
     await guard.acquire("p")
-    with pytest.raises(QuotaExhaustedError):
-        await guard.acquire("p")
+    for _ in range(3):  # refused requests are not spent, so the counter stays at the limit
+        with pytest.raises(QuotaExhaustedError):
+            await guard.acquire("p")
+    assert await guard.used("p") == 2
     now[0] = NOW + timedelta(days=1)
     await guard.acquire("p")
     assert await guard.used("p") == 1

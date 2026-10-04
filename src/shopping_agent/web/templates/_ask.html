@@ -6,6 +6,12 @@
     <label for="message">Your request</label>
     <textarea id="message" name="message" required minlength="2" maxlength="4000"
       placeholder="e.g. Laptop under 80k for programming, I have an HDFC credit card"></textarea>
+    <fieldset class="platforms">
+      <legend>Show prices from</legend>
+      {% for p in platform_options %}
+      <label class="check"><input type="checkbox" name="platform" value="{{ p.value }}" {% if p.checked %}checked{% endif %}> {{ p.label }}</label>
+      {% endfor %}
+    </fieldset>
     <div class="row" style="margin-top:0.6rem">
       <button type="submit">Ask</button>
       <label class="check" hidden><input type="checkbox" id="follow-up"> Follow-up to the last answer</label>

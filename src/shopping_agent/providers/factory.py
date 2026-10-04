@@ -37,11 +37,22 @@ def _require(secret: str, name: str) -> str:
 
 
 def build_registry(settings: Settings, cache: Cache, client: httpx.AsyncClient) -> ProviderRegistry:
+    quota = QuotaGuard(
+        cache, {"serpapi": settings.serpapi_daily_quota, "tavily": settings.tavily_daily_quota}
+    )
+
+    async def serpapi_extra_request() -> None:
+        await quota.acquire("serpapi")
+
     products: list[ProductProvider] = []
     for name in settings.product_provider_names():
         if name == "serpapi":
             key = _require(settings.serpapi_api_key.get_secret_value(), "SERPAPI_API_KEY")
-            products.append(SerpApiProductProvider(ProviderHttp("serpapi", client), key))
+            products.append(
+                SerpApiProductProvider(
+                    ProviderHttp("serpapi", client), key, acquire=serpapi_extra_request
+                )
+            )
         elif name == "fixture":
             products.append(FixtureProductProvider())
         else:
@@ -64,7 +75,4 @@ def build_registry(settings: Settings, cache: Cache, client: httpx.AsyncClient) 
         allowlist = DEFAULT_FETCH_ALLOWLIST | frozenset(settings.fetch_extra_domain_list())
         fetcher = SafeFetcher(client, allowlist, max_bytes=settings.fetch_max_bytes)
 
-    quota = QuotaGuard(
-        cache, {"serpapi": settings.serpapi_daily_quota, "tavily": settings.tavily_daily_quota}
-    )
     return ProviderRegistry(products=products, web=web, fetcher=fetcher, cache=cache, quota=quota)

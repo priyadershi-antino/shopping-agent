@@ -65,6 +65,19 @@ async def test_chat_json_and_runs(client: httpx.AsyncClient) -> None:
     assert (await client.get("/v1/runs/nope")).status_code == 404
 
 
+async def test_chat_platforms_are_validated_and_applied(client: httpx.AsyncClient) -> None:
+    bad = await client.post(
+        "/v1/chat", json={"message": ASK, "stream": False, "platforms": ["ebay"]}
+    )
+    assert bad.status_code == 422
+    ok = await client.post(
+        "/v1/chat", json={"message": ASK, "stream": False, "platforms": ["flipkart"]}
+    )
+    assert ok.status_code == 200, ok.text
+    markets = {i["listing"]["marketplace"] for i in ok.json()["items"]}
+    assert markets == {"flipkart"}
+
+
 async def test_chat_streams_progress(client: httpx.AsyncClient) -> None:
     response = await client.post("/v1/chat", json={"message": ASK})
     assert response.headers["content-type"].startswith("text/event-stream")

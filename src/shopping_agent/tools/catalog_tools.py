@@ -79,10 +79,13 @@ class SearchProductsTool(Tool[SearchProductsInput, SearchProductsOutput]):
             min_price=args.min_price,
             max_price=args.max_price * OFFER_HEADROOM if args.max_price else None,
             limit=min(args.limit * 3, 50),
+            marketplaces=sorted(ctx.platforms) if ctx.platforms else None,
         )
         gathered = await ctx.providers.search_products(query, sale_active=ctx.sale_active)
         async with ctx.sessions() as session, session.begin():
-            rows, evidence = await ingest(ctx, session, gathered.value)
+            rows, evidence = await ingest(
+                ctx, session, [x for x in gathered.value if ctx.allows(x.marketplace)]
+            )
         candidates = build_candidates(rows, ctx, max_price=args.max_price)[: args.limit]
         note = None
         if args.max_price and any(c.over_budget for c in candidates):
@@ -373,13 +376,20 @@ class GetListingsTool(Tool[GetListingsInput, GetListingsOutput]):
             ref_from_row(ref_row), sale_active=ctx.sale_active
         )
         async with ctx.sessions() as session, session.begin():
-            fresh, evidence = await ingest(ctx, session, gathered.value)
+            fresh, evidence = await ingest(
+                ctx, session, [x for x in gathered.value if ctx.allows(x.marketplace)]
+            )
             known = (
                 await CatalogRepository(session).listings_for(product_id=ref_row.product_id)
                 if ref_row.product_id
                 else []
             )
-        rows = {r.id: r for r in [ref_row, *known, *fresh]}
+        # The listing being examined stays; other sellers must be on the user's platforms.
+        rows = {
+            r.id: r
+            for r in [ref_row, *known, *fresh]
+            if r.id == ref_row.id or ctx.allows(r.marketplace)
+        }
         matching: list[GatedListing] = []
         rejected: list[RejectedListing] = []
         gated = []
@@ -482,11 +492,19 @@ class FindAlternativesTool(Tool[FindAlternativesInput, FindAlternativesOutput]):
             terms.append(f"{ref_attrs.ram_gb}GB RAM")
         query = " ".join(t for t in terms if t).strip() or ref.title_raw
         gathered = await ctx.providers.search_products(
-            ProductQuery(query=query, category=ref.category, max_price=ceiling, limit=30),
+            ProductQuery(
+                query=query,
+                category=ref.category,
+                max_price=ceiling,
+                limit=30,
+                marketplaces=sorted(ctx.platforms) if ctx.platforms else None,
+            ),
             sale_active=ctx.sale_active,
         )
         async with ctx.sessions() as session, session.begin():
-            rows, evidence = await ingest(ctx, session, gathered.value)
+            rows, evidence = await ingest(
+                ctx, session, [x for x in gathered.value if ctx.allows(x.marketplace)]
+            )
         constraints = [
             Constraint(attribute=a, op=ConstraintOp.GTE, value=getattr(ref_attrs, a))
             for a in args.keep_at_least

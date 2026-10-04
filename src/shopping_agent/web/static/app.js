@@ -89,10 +89,26 @@
     };
     syncFollowUp();
 
+    // Platform choice is remembered in this browser (storage can be blocked: ignore failures).
+    const boxes = $$("input[name=platform]", form);
+    try {
+      const saved = JSON.parse(localStorage.getItem("platforms") || "null");
+      if (Array.isArray(saved) && saved.length) boxes.forEach((b) => (b.checked = saved.includes(b.value)));
+    } catch (e) { /* default selection */ }
+    const chosenPlatforms = () => boxes.filter((b) => b.checked).map((b) => b.value);
+
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       const message = form.elements.message.value.trim();
       if (message.length < 2) return;
+      const platforms = chosenPlatforms();
+      if (!platforms.length) {
+        progress.hidden = false;
+        progress.replaceChildren();
+        addStep(progress, "Pick at least one platform to show prices from.", "error");
+        return;
+      }
+      try { localStorage.setItem("platforms", JSON.stringify(platforms)); } catch (e) { /* ignore */ }
       const previous = followUp && followUp.checked ? form.dataset.lastRun : null;
       button.disabled = true;
       progress.hidden = false;
@@ -105,7 +121,7 @@
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message, previous_run_id: previous, stream: true }),
+          body: JSON.stringify({ message, previous_run_id: previous, stream: true, platforms }),
         });
         if (!res.ok || !res.body) throw new Error(await errorText(res));
         await readSse(res.body, (event, data) => {

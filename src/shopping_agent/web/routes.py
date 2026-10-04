@@ -74,18 +74,34 @@ def require_web_key(request: Request) -> None:
         raise HTTPException(303, headers={"Location": "/ui/key"}) from exc
 
 
+# Platforms offered as checkboxes on the ask form (manufacturer pages are not a shopping source).
+PLATFORM_LABELS = {
+    "amazon": "Amazon",
+    "flipkart": "Flipkart",
+    "croma": "Croma",
+    "reliance_digital": "Reliance Digital",
+    "vijay_sales": "Vijay Sales",
+    "tata_cliq": "Tata CLiQ",
+    "other": "Other sellers",
+}
+
 router = APIRouter(include_in_schema=False)
 pages = APIRouter(include_in_schema=False, dependencies=[Depends(require_web_key)])
 
 
 def page(request: Request, name: str, **context: Any) -> HTMLResponse:
     runtime = get_runtime(request)
+    selected = runtime.settings.default_marketplaces()
     return templates.TemplateResponse(
         request,
         name,
         {
             "demo": runtime.providers.demo_mode,
             "tool_labels": TOOL_LABELS,
+            "platform_options": [
+                {"value": v, "label": label, "checked": selected is None or v in selected}
+                for v, label in PLATFORM_LABELS.items()
+            ],
             "nav": NAV_FOR.get(name),
             **context,
         },

@@ -6,6 +6,8 @@ from typing import Literal
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from shopping_agent.domain.product import Marketplace, parse_marketplaces
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -41,6 +43,10 @@ class Settings(BaseSettings):
     # otherwise the clearly-labelled demo fixtures.
     product_providers: str = "auto"
     web_providers: str = "auto"
+    # Platforms whose listings the agent uses unless a request names others (comma-separated:
+    # amazon, flipkart, croma, reliance_digital, vijay_sales, tata_cliq, other). Empty = all,
+    # including small resellers, whose prices are the least reliable.
+    default_platforms: str = "amazon,flipkart,croma,reliance_digital,vijay_sales,tata_cliq"
     serpapi_api_key: SecretStr = SecretStr("")
     tavily_api_key: SecretStr = SecretStr("")
     # Daily request budgets (free tiers are small). Enforced with Redis counters.
@@ -123,6 +129,9 @@ class Settings(BaseSettings):
             return ["tavily"]
         # Real product data without web search: demo web pages must not mix into real answers.
         return [] if self.product_provider_names() != ["fixture"] else ["fixture"]
+
+    def default_marketplaces(self) -> frozenset[Marketplace] | None:
+        return parse_marketplaces(self._csv(self.default_platforms))
 
     def fetch_extra_domain_list(self) -> list[str]:
         return self._csv(self.fetch_extra_domains)

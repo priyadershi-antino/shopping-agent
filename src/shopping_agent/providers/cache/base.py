@@ -14,8 +14,8 @@ class Cache(Protocol):
 
     async def delete(self, key: str) -> None: ...
 
-    async def incr(self, key: str, ttl_s: int) -> int:
-        """Increment a counter; the TTL is applied when the counter is created."""
+    async def incr(self, key: str, ttl_s: int, by: int = 1) -> int:
+        """Add `by` to a counter (negative to give back); the TTL is applied when it is created."""
         ...
 
     async def ping(self) -> bool: ...
